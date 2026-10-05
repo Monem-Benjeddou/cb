@@ -1,18 +1,10 @@
 #!/bin/sh
 
-sudo dpkg --add-architecture i386
-sudo apt-get update
-sudo apt-get install linux-libc-dev:i386
-sudo apt-get install gcc-multilib
+# Toolchains for the linux musl builds.
+# The glibc builds use setup_linux_glibc.sh instead.
 
-sudo apt-get install gcc-arm-linux-gnueabi
-sudo apt-get install gcc-arm-linux-gnueabihf
+sudo apt-get update
 sudo apt-get install musl-dev musl-tools
-sudo apt-get install gcc-aarch64-linux-gnu
-sudo apt-get install gcc-mips64el-linux-gnuabi64
-sudo apt-get install gcc-s390x-linux-gnu
-sudo apt-get install gcc-powerpc64le-linux-gnu
-sudo apt-get install gcc-riscv64-linux-gnu
 
 mkdir crosscompilers
 cd crosscompilers

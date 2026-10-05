@@ -14,7 +14,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-20.04, macos-13, windows-2019]
+        os: [ubuntu-24.04, macos-13, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
@@ -51,17 +51,13 @@ jobs:
       if: startsWith(matrix.os, 'windows')
       run: rm bin -r -fo
       working-directory: cb/bld
-    - name: Build (Linux)
+    - name: Build (Linux musl)
       if: startsWith(matrix.os, 'ubuntu')
       run: |
         #!/bin/bash
         export PATH="$PWD/../../crosscompilers/bin:$PATH"
         set -e
-        for f in linux_*.sh; do
-          if [[ "$f" == *_cross.sh ]] || [[ "$f" == *_regular.sh ]]
-          then
-            continue
-          fi
+        for f in linux_*_musl-*.sh; do
           bash "$f"
         done
       working-directory: cb/bld
@@ -107,6 +103,67 @@ jobs:
         name: bin-${{ matrix.os }}
         path: cb/bld/bin
 
+  build-linux-glibc:
+    runs-on: ubuntu-24.04
+    # Built in an old distro so the .so files only need glibc 2.28 (RHEL 8 / Debian 10).
+    # See bld/setup_linux_glibc.sh.
+    container: debian:10
+    env:
+      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: 1
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        path: "cb"
+    - uses: actions/checkout@v4
+      with:
+        repository: libtom/libtomcrypt
+        path: "libtomcrypt"
+        ref: "v1.18.2"
+    - name: Setup compilers
+      run: ./cb/bld/setup_linux_glibc.sh
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0
+    - name: Generate script
+      run: dotnet run
+      working-directory: cb/bld
+    - name: Clean output directory
+      run: rm -fr bin
+      working-directory: cb/bld
+    - name: Build (Linux glibc)
+      shell: bash
+      run: |
+        set -e
+        for f in linux_*.sh; do
+          if [[ "$f" == *_cross.sh ]] || [[ "$f" == *_regular.sh ]] || [[ "$f" == *_musl-* ]]
+          then
+            continue
+          fi
+          bash "$f"
+        done
+      working-directory: cb/bld
+    - name: Check glibc baseline
+      shell: bash
+      run: |
+        # Fail if any .so needs a newer glibc than the container has (2.28).
+        set -e
+        fail=0
+        for f in $(find bin -name '*.so' | sort); do
+          v=$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)
+          echo "$f: GLIBC_$v"
+          if [ "$(printf '%s\n2.28\n' "$v" | sort -V | tail -1)" != "2.28" ]; then
+            echo "::error file=$f::requires GLIBC_$v, newer than 2.28"
+            fail=1
+          fi
+        done
+        exit $fail
+      working-directory: cb/bld
+    - uses: actions/upload-artifact@v4
+      with:
+        name: bin-linux-glibc
+        path: cb/bld/bin
+
   build-wasm:
     strategy:
       matrix:
@@ -116,7 +173,7 @@ jobs:
         - '{ "tfm": "net7.0", "emsdk": "3.1.12" }' # eol: 2024-05-14
         - '{ "tfm": "net8.0", "emsdk": "3.1.34" }' # eol: 2026-11-14
         - '{ "tfm": "net9.0", "emsdk": "3.1.56" }' # eol: 2026-05-12
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
       with:
@@ -157,7 +214,7 @@ jobs:
         path: cb/bld/bin
 
   test:
-    needs: [ build, build-wasm]
+    needs: [ build, build-linux-glibc, build-wasm ]
     if: ${{ github.event_name == 'pull_request' }}
     strategy:
       matrix:
@@ -183,7 +240,11 @@ jobs:
       working-directory: cb/bld
     - uses: actions/download-artifact@v4
       with:
-        name: bin-ubuntu-20.04
+        name: bin-ubuntu-24.04
+        path: cb/bld/bin
+    - uses: actions/download-artifact@v4
+      with:
+        name: bin-linux-glibc
         path: cb/bld/bin
     - uses: actions/download-artifact@v4
       with:
@@ -235,9 +296,9 @@ jobs:
         dotnet run
 
   publish:
-    needs: [ build, build-wasm ]
+    needs: [ build, build-linux-glibc, build-wasm ]
     if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v4
       with:
@@ -251,7 +312,11 @@ jobs:
       working-directory: bld
     - uses: actions/download-artifact@v4
       with:
-        name: bin-ubuntu-20.04
+        name: bin-ubuntu-24.04
+        path: bld/bin
+    - uses: actions/download-artifact@v4
+      with:
+        name: bin-linux-glibc
         path: bld/bin
     - uses: actions/download-artifact@v4
       with:

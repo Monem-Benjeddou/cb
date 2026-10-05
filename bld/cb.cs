@@ -147,7 +147,9 @@ public static class CB
 					break;
 
 				case "x86":
-					compiler = "gcc";
+					// a cross compiler rather than gcc -m32, since gcc-multilib
+					// conflicts with the other cross compilers on Debian.
+					compiler = "i686-linux-gnu-gcc";
 					tw.Write(" -m32\n");
 					tw.Write(" -msse4.2\n");
 					tw.Write(" -maes\n");
@@ -167,6 +169,13 @@ public static class CB
 
 				case "ppc64le":
 					compiler = "powerpc64le-linux-gnu-gcc";
+					if (libname.Contains("sqlite3mc"))
+					{
+						// the AEGIS code uses vec_cipher_be() when __CRYPTO__ is
+						// defined, which gcc 8 (Debian 10) does not provide.
+						// Use its portable AES implementation instead.
+						tw.Write(" -mno-crypto\n");
+					}
 					break;
 
 				case "armhf":
